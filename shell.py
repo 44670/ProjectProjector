@@ -10,12 +10,21 @@ import time
 import sys
 import os
 import serial
+import json
+import urllib2
+import zipfile
+import hashlib
+import threading
 
 import mediarenderer
 
 
+VERSION_CODE = 20191224
+VERSION = 'v20191224'
+
 VIDEO_PATH = '/disk/video'
 FONT_PATH = '/opt/shell/font.ttf'
+MOUNT_DISK_CMD = 'mount /dev/mmcblk0p3 /disk -o nonempty'
 
 
 button = Button(17)
@@ -37,6 +46,104 @@ PROJECTOR_ARGS = [
 
 projectorArgValue = [0] * 9
 
+LED_BASEDIR = '/sys/class/leds/led0/'
+ledCounter = 0
+
+otaJson = None
+otaZipFile = None
+
+def tryWriteFile(fn, data):
+    try:
+        with open(fn, 'wb') as f:
+            f.write(data)
+    except Exception as e:
+        print(e)
+
+tryWriteFile(LED_BASEDIR + 'trigger', 'none')
+
+def ledThreadLoop():
+    global ledCounter
+    while True:
+        time.sleep(1)
+        if ledCounter > 0:
+            ledCounter -= 1
+            if ledCounter == 0:
+                tryWriteFile(LED_BASEDIR + 'brightness', '1')
+
+def setLedOn(offAfterSeconds):
+    global ledCounter
+    tryWriteFile(LED_BASEDIR + 'brightness', '0')
+    ledCounter = offAfterSeconds
+    
+
+ledThread = threading.Thread(target=ledThreadLoop)
+ledThread.daemon = True
+ledThread.start()
+
+setLedOn(60)
+
+def otaGetSerial():
+    with open('/proc/cpuinfo','rb') as f:
+        info = f.read()
+        for line in info.split('\n'):
+            if line.startswith('Serial'):
+                return (line.split(':')[1].strip())
+    return 'unknown'
+
+def getFileSha256Hash(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        while True:
+            buf = f.read(256 * 1024)
+            if buf == '':
+                break
+            h.update(buf)
+        return h.hexdigest()
+
+def otaUrlOpen(url):
+    print(url)
+    req = urllib2.Request(url, headers={ 'User-Agent': '44IoT' })
+    return urllib2.urlopen(req)
+
+
+def otaInstallPayload(path):
+    global otaZipFile
+    otaZipFile = zipfile.ZipFile(path)
+    exec(otaZipFile.read('update.py'))
+
+def otaStartUpdate():
+    global otaJson
+    updateZipPath = '/root/update.zip'
+    renderMessageBox('Software Update', 'Downloading update package...')
+    f = otaUrlOpen(otaJson['file'])
+    with open(updateZipPath, 'wb') as outf:
+        outf.write(f.read())
+    if getFileSha256Hash(updateZipPath) != otaJson['hash']:
+        msgBox('Software Update', 'Update package verification failed.')
+        return
+    otaInstallPayload(updateZipPath)
+
+def otaCheckUpdate():
+    global otaJson, otaZipFile
+    otaJson = None
+    otaZipFile = None
+    renderMessageBox('Software Update', 'Checking update...',)
+    try:
+        f = otaUrlOpen('https://44670.org/ota/ota.json?sn=%s&v=%d' % (otaGetSerial(), VERSION_CODE))
+        otaJson = json.loads(f.read())
+    except Exception as e:
+        print(e)
+        msgBox('Software Update', 'Check update failed.')
+        return
+    if otaJson['versionCode'] <= VERSION_CODE:
+        msgBox('Software Update', 'Your software is up to date.')
+        return
+    menu = ['>Update Later', '>Update Now', 'New version: ' + otaJson['version']]
+    for line in otaJson['message'].split('\n'):
+        menu.append(line)
+    ret, event = showMenu(menu, 'Software update is available.')
+    if ret == 1:
+        otaStartUpdate()
 
 def submitSerialCommand(cmd):
     if (len(cmd) != 7):
@@ -51,7 +158,8 @@ def submitSerialCommand(cmd):
     time.sleep(0.2)
     if cmd[2] in ['\x99', '\x0b', '\x01', '\x77']:
         renderMessageBox('Please Wait...', '')
-        time.sleep(40)
+        setLedOn(60)
+        time.sleep(20)
         flushKey()
 
 
@@ -221,6 +329,11 @@ def updateScreen():
 def drawText(x, y, text, colorFg, colorBg):
     return basicFont.render_to(screen, (x, y), text, colorFg, colorBg)
 
+def drawTextMultiline(x, y, text, colorFg, colorBg):
+    for line in text.split('\n'):
+        basicFont.render_to(screen, (x, y), line, colorFg, colorBg)
+        y += itemHeight
+
 
 def clearAndDrawTitle(title):
     screen.fill(COLOR_BG)
@@ -230,7 +343,7 @@ def clearAndDrawTitle(title):
 
 def renderMessageBox(title, msg):
     clearAndDrawTitle(title)
-    drawText(30, itemHeight + 10, msg, COLOR_FG, COLOR_BG)
+    drawTextMultiline(30, itemHeight + 10, msg, COLOR_FG, COLOR_BG)
     updateScreen()
 
 
@@ -432,10 +545,11 @@ def projectorMenu():
 
 def powerMenu():
     ret, event = showMenu(
-        ['Shutdown', 'Return to shell', 'Update'], 'Power options')
+        ['Shutdown', 'Return to shell', 'Install Package'], 'Power options')
     if ret == 0:
         with open('/run/next', 'w') as f:
             f.write('poweroff;exit')
+        setLedOn(60)
         serial.write(CMD_TOGGLE_POWER + '\xa0')
         time.sleep(5)
         sys.exit()
@@ -465,11 +579,24 @@ def setWiFiNetwork(ssid, pwd):
         ret = runCommandAndGetOutput(WPA_CLI_CMD + ['enable_network', networkID])
     ret = runCommandAndGetOutput(WPA_CLI_CMD + ['save_config'])
 
+def udiskMode():
+    os.system('umount /disk')
+    os.system('modprobe g_mass_storage file=/dev/mmcblk0p3 stall=0 removable=1')
+    while True:
+        renderMessageBox('USB File Transfer', 'Connect to PC via the right micro-usb port.')
+    
+        key = waitKey(500)
+        if key == K_ESCAPE:
+            break
+    os.system('sync')
+    os.system('rmmod g_mass_storage')
+    os.system('sync')
+    os.system(MOUNT_DISK_CMD)
 
 def configMenu():
     
     ret, event = showMenu(
-        ['WiFi', 'System Info'], 'Settings'
+        ['WiFi', 'Network Info', 'System Info', 'Software Update', '<!> Format Internal Storage'], 'Settings'
     )
     if ret == 0:
         pwd = None
@@ -485,10 +612,24 @@ def configMenu():
         else:
             msgBox('WiFi', 'WiFi config saved.')
     elif ret == 1:
-        msgBox('System Info', 'IP: %s' % (runCommandAndGetOutput(['hostname', '-I']).strip()))
-
-
-
+        msgBox('Network Info', 'IP: %s' % (runCommandAndGetOutput(['hostname', '-I']).strip()))
+    elif ret == 2:
+        msgBox('System Info', 'Version: v%d\nSN: %s' % (VERSION_CODE, otaGetSerial()))
+    elif ret == 3:
+        otaCheckUpdate()
+    elif ret == 4:
+        msg = inputDialog('Enter "OK" to DELETE ALL DATA.', '')
+        if msg == 'OK':
+            os.system('umount /disk')
+            os.system('blkdiscard /dev/mmcblk0p3')
+            os.system('parted /dev/mmcblk0 < /opt/shell/parted.ans')
+            os.system('mkfs.exfat -s 2048 /dev/mmcblk0p3')
+            os.system('sync')
+            os.system(MOUNT_DISK_CMD)
+            os.system('mkdir /disk/video /disk/game')
+            msgBox('Format', 'Done')
+        else:
+            msgBox('Format', 'Format cancelled.')
 
 def dlnaMenu():
     mediarenderer.currentURI = None
@@ -502,13 +643,13 @@ def dlnaMenu():
             callOMXPlayer(uri, mode='dlna')
             mediarenderer.currentURI = None
 
-
+os.system(MOUNT_DISK_CMD)
 mediarenderer.startHTTPServer()
 mediarenderer.startSSDPService()
 
 while True:
     ret, event = showMenu(
-        ["Play Video", "TV", "DLNA", "Projector Control", "Settings", "Power options"], "Main")
+        ["Play Video", "TV", "DLNA", "Projector Control", "USB File Transfer", "Settings", "Power options"], "Main")
     if ret == 0:
         playVideoMenu()
     elif ret == 1:
@@ -518,6 +659,9 @@ while True:
     elif ret == 3:
         projectorMenu()
     elif ret == 4:
-        configMenu()
+        udiskMode()
     elif ret == 5:
+        configMenu()
+    elif ret == 6:
         powerMenu()
+
