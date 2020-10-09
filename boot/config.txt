@@ -1,5 +1,6 @@
 enable_uart=1
 dtoverlay=gpio-ir,gpio_pin=18,gpio_pull=high
+dtparam=audio=on
 
 hdmi_force_hotplug=1
 hdmi_ignore_edid=0xa5000080
@@ -13,10 +14,10 @@ hdmi_pixel_encoding=1
 
 force_turbo=1
 start_x=0
-arm_freq=1000
+arm_freq=800
 core_freq=400
-h264_freq=500
+h264_freq=400
 #isp_freq=100
 v3d_freq=100
-sdram_freq=450
+sdram_freq=400
 

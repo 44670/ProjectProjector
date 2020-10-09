@@ -1,0 +1,2 @@
+rm 3
+mkpart primary 4GiB -2GiB

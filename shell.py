@@ -19,8 +19,8 @@ import threading
 import mediarenderer
 
 
-VERSION_CODE = 20191224
-VERSION = 'v20191224'
+VERSION_CODE = 20201009
+VERSION = 'v%s' % VERSION_CODE
 
 VIDEO_PATH = '/disk/video'
 FONT_PATH = '/opt/shell/font.ttf'
@@ -112,6 +112,9 @@ def otaInstallPayload(path):
     exec(otaZipFile.read('update.py'))
 
 def otaStartUpdate():
+    global castServEnabled
+    castServEnabled = False
+    os.system('killall CastService')
     global otaJson
     updateZipPath = '/root/update.zip'
     renderMessageBox('Software Update', 'Downloading update package...')
@@ -267,6 +270,8 @@ def callOMXPlayer(url, srt=None, mode=None):
     if (aplayRet.find('card 1:') != -1):
         print('Using usb sound card...')
         args += ['-o', 'alsa:hw:1,0']
+    else:
+        args += ['-o', 'local']
     args += ['--font', FONT_PATH, '--italic-font', FONT_PATH]
     args += ['--timeout', '120']
     args += ['--vol', '-2100']
@@ -603,6 +608,10 @@ def configMenu():
         ssid = inputDialog('WiFi SSID', '')
         if ssid != None:
             pwd = inputDialog('WiFi Password', '')
+        if (ssid == '9527') and (ssid == '9527'):
+            with open('/run/next', 'w') as f:
+                f.write('python /opt/shell/calib.py')
+            sys.exit()
         if (ssid == None) or (pwd == None) or ((ssid == '') and (pwd != '')):
             msgBox('WiFi', 'WiFi config cancelled.')
             return
@@ -625,6 +634,7 @@ def configMenu():
             os.system('parted /dev/mmcblk0 < /opt/shell/parted.ans')
             os.system('mkfs.exfat -s 2048 /dev/mmcblk0p3')
             os.system('sync')
+            os.system('fdisk /dev/mmcblk0 < /opt/shell/fdisk.ans')
             os.system(MOUNT_DISK_CMD)
             os.system('mkdir /disk/video /disk/game')
             msgBox('Format', 'Done')
@@ -632,9 +642,10 @@ def configMenu():
             msgBox('Format', 'Format cancelled.')
 
 def dlnaMenu():
+    ip = (runCommandAndGetOutput(['hostname', '-I']).strip())
     mediarenderer.currentURI = None
     while True:
-        renderMessageBox('DLNA', 'Waiting...')
+        renderMessageBox('Wireless Casting', 'Waiting...\nhttp://%s' % ip)
         key = waitKey(500)
         if key == K_ESCAPE:
             return
@@ -643,15 +654,77 @@ def dlnaMenu():
             callOMXPlayer(uri, mode='dlna')
             mediarenderer.currentURI = None
 
+def fileBrowser(dir):
+    fnList = os.listdir(dir)
+    while True:
+        unicodeFnList = []
+        for fn in fnList:
+            unicodeFnList.append(fn.decode('utf-8'))
+        ret, event = showMenu(unicodeFnList, dir)
+        if ret < 0:
+            return
+        fullPath = dir + '/' + fnList[ret]
+        if os.path.isdir(fullPath):
+            fileBrowser(fullPath)
+        else:
+            srtPath = fullPath.rsplit('.', 1)[0] + '.srt'
+            if os.path.isfile(srtPath):
+                print('Srt file found: ' + srtPath)
+            else:
+                srtPath = None
+            callOMXPlayer(fullPath, srtPath)
+
+    
+
+def fileMenu():
+    ret, event = showMenu(['Internal Storage', 'UDisk'], 'Select Device')
+    if ret == 0:
+        fileBrowser('/disk')
+    elif ret == 1:
+        try:
+            os.mkdir('/udisk')
+        except:
+            pass
+        os.system('mount /dev/sda1 /udisk')
+        os.system('mount /dev/sda /udisk')
+        fileBrowser('/udisk')
+        os.system('umount /udisk')
+
+
+
 os.system(MOUNT_DISK_CMD)
 mediarenderer.startHTTPServer()
 mediarenderer.startSSDPService()
+castServEnabled = True
+def CastServThread():
+    os.system('killall CastService')
+    while True:
+        time.sleep(5)
+        if not castServEnabled:
+            print('CastService disabled, byebye')
+            return
+        proc = subprocess.Popen(['/opt/shell/CastService'], stdout=subprocess.PIPE)
+        while proc.poll() is None:
+            out = proc.stdout.readline().strip()
+            print('CastService: ' + out)
+            if len(out) < 1:
+                continue
+            if out[0] == '!':
+                arr = out.split('!', 2)
+                if len(arr) >= 3:
+                    if arr[1] == 'play':
+                        mediarenderer.currentURI = arr[2]
+        print('CastService exits, restart...')
+
+castServThread = threading.Thread(target=CastServThread)
+castServThread.daemon = True
+castServThread.start()
 
 while True:
     ret, event = showMenu(
-        ["Play Video", "TV", "DLNA", "Projector Control", "USB File Transfer", "Settings", "Power options"], "Main")
+        ["Files", "TV", "Wireless Casting", "Projector Control", "Settings", "Power options"], "Main")
     if ret == 0:
-        playVideoMenu()
+        fileMenu()
     elif ret == 1:
         tvMenu()
     elif ret == 2:
@@ -659,9 +732,7 @@ while True:
     elif ret == 3:
         projectorMenu()
     elif ret == 4:
-        udiskMode()
-    elif ret == 5:
         configMenu()
-    elif ret == 6:
+    elif ret == 5:
         powerMenu()
 
