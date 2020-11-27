@@ -1,7 +1,6 @@
 #!/bin/bash
-
+killall lircd-uinput
 lircd-uinput -a &
-mount /dev/mmcblk0p3 /disk
 while true
 do
 	rm /run/next

@@ -1,6 +1,10 @@
 enable_uart=1
+disable_pvt=1
 dtoverlay=gpio-ir,gpio_pin=18,gpio_pull=high
 dtparam=audio=on
+dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4
+disable_audio_dither=1
+audio_pwm_mode=2
 
 hdmi_force_hotplug=1
 hdmi_ignore_edid=0xa5000080
@@ -18,6 +22,6 @@ arm_freq=800
 core_freq=400
 h264_freq=400
 #isp_freq=100
-v3d_freq=100
+v3d_freq=250
 sdram_freq=400
 

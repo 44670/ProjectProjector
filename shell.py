@@ -19,7 +19,7 @@ import threading
 import mediarenderer
 
 
-VERSION_CODE = 20201009
+VERSION_CODE = 20201017
 VERSION = 'v%s' % VERSION_CODE
 
 VIDEO_PATH = '/disk/video'
@@ -274,7 +274,7 @@ def callOMXPlayer(url, srt=None, mode=None):
         args += ['-o', 'local']
     args += ['--font', FONT_PATH, '--italic-font', FONT_PATH]
     args += ['--timeout', '120']
-    args += ['--vol', '-2100']
+    args += ['--vol', '-900']
     if srt:
         args += ['--subtitles', srt]
     if mode == 'tv':
