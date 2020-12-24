@@ -1,9 +1,10 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 from pygame.locals import *
 from gpiozero import Button
 import struct
 import binascii
 import pygame.freetype
+import pygame.image
 import pygame
 import subprocess
 import time
@@ -18,11 +19,15 @@ import threading
 
 import mediarenderer
 
+from lang_cn import TR
 
-VERSION_CODE = 20201017
+
+VERSION_CODE = 20201212
 VERSION = 'v%s' % VERSION_CODE
 
+BASE_PATH = '/opt/shell/'
 VIDEO_PATH = '/disk/video'
+CONFIG_PATH = '/opt/shell/config.json'
 FONT_PATH = '/opt/shell/font.ttf'
 MOUNT_DISK_CMD = 'mount /dev/mmcblk0p3 /disk -o nonempty'
 
@@ -51,6 +56,36 @@ ledCounter = 0
 
 otaJson = None
 otaZipFile = None
+
+config = {}
+
+defaultConfig = {
+            'DefaultVideoDelay':0,
+            'DefaultVideoDelayBluetooth':-600,
+            'DefaultVolume':-12,
+            'AlsaVolume':70,
+            'DistortionUpDown': 30,
+            'DistortionLeftRight': 30
+        }
+
+def loadConfig():
+    global config
+    try:
+        with open(CONFIG_PATH, 'r') as f:
+            config = json.load(f)
+        for k in defaultConfig.keys():
+            if not (config.has_key(k)):
+                config[k] = defaultConfig[k]
+    except Exception as e:
+        print('load config failed... use default config')
+        print(e)
+        config = defaultConfig.copy()
+
+def saveConfig():
+    with open(CONFIG_PATH, 'w') as f:
+        json.dump(config, f)
+
+loadConfig()
 
 def tryWriteFile(fn, data):
     try:
@@ -106,21 +141,29 @@ def otaUrlOpen(url):
     return urllib2.urlopen(req)
 
 
+
 def otaInstallPayload(path):
+    global castServEnabled
+    castServEnabled = False
+    os.system('killall CastService bluealsa omxplayer.bin')
+    time.sleep(1)
     global otaZipFile
     otaZipFile = zipfile.ZipFile(path)
     exec(otaZipFile.read('update.py'))
 
 def otaStartUpdate():
-    global castServEnabled
-    castServEnabled = False
-    os.system('killall CastService')
     global otaJson
     updateZipPath = '/root/update.zip'
-    renderMessageBox('Software Update', 'Downloading update package...')
     f = otaUrlOpen(otaJson['file'])
     with open(updateZipPath, 'wb') as outf:
-        outf.write(f.read())
+        bytesDownloaded = 0
+        while True:
+            data = f.read(64 * 1024)
+            if len(data) <= 0:
+                break
+            outf.write(data)
+            bytesDownloaded += len(data)
+            renderMessageBox('Software Update', TR('Downloading update package(%d KiB)...') % (bytesDownloaded / 1024))
     if getFileSha256Hash(updateZipPath) != otaJson['hash']:
         msgBox('Software Update', 'Update package verification failed.')
         return
@@ -133,7 +176,7 @@ def otaCheckUpdate():
     renderMessageBox('Software Update', 'Checking update...',)
     try:
         f = otaUrlOpen('https://44670.org/ota/ota.json?sn=%s&v=%d' % (otaGetSerial(), VERSION_CODE))
-        otaJson = json.loads(f.read())
+        otaJson = json.loads(f.read()) 
     except Exception as e:
         print(e)
         msgBox('Software Update', 'Check update failed.')
@@ -141,7 +184,7 @@ def otaCheckUpdate():
     if otaJson['versionCode'] <= VERSION_CODE:
         msgBox('Software Update', 'Your software is up to date.')
         return
-    menu = ['>Update Later', '>Update Now', 'New version: ' + otaJson['version']]
+    menu = ['>Update Later', '>Update Now', TR('New version: ') + otaJson['version']]
     for line in otaJson['message'].split('\n'):
         menu.append(line)
     ret, event = showMenu(menu, 'Software update is available.')
@@ -160,7 +203,7 @@ def submitSerialCommand(cmd):
     print(binascii.hexlify(cmd))
     time.sleep(0.2)
     if cmd[2] in ['\x99', '\x0b', '\x01', '\x77']:
-        renderMessageBox('Please Wait...', '')
+        renderMessageBox('Please wait...', 'Standby')
         setLedOn(60)
         time.sleep(20)
         flushKey()
@@ -197,12 +240,16 @@ itemHeight = basicFontHeight + 10
 screen.fill(BLACK)
 pygame.display.update()
 
+laserImg = None
+laserImg = pygame.image.load(BASE_PATH + 'laser.png')
+
 
 def runCommandAndGetOutput(args):
     print('runCommand', args)
     ret = subprocess.check_output(args)
     print(ret)
     return ret
+
 
 def pollGpioKey():
     if not button.is_pressed:
@@ -261,6 +308,7 @@ def flushKey():
 
 
 def callOMXPlayer(url, srt=None, mode=None):
+    useBluealsa = False
     screen.fill(COLOR_BG)
     updateScreen()
 
@@ -270,11 +318,18 @@ def callOMXPlayer(url, srt=None, mode=None):
     if (aplayRet.find('card 1:') != -1):
         print('Using usb sound card...')
         args += ['-o', 'alsa:hw:1,0']
+    elif blTryConfigureAudio():
+        useBluealsa = True
+        args += ['-o', 'alsa:bluealsa']
     else:
         args += ['-o', 'local']
     args += ['--font', FONT_PATH, '--italic-font', FONT_PATH]
     args += ['--timeout', '120']
-    args += ['--vol', '-900']
+    args += ['--vol', '%d' % (config['DefaultVolume'] * 100)]
+    videoDelay = int(config['DefaultVideoDelay'])
+    if useBluealsa:
+        videoDelay = config['DefaultVideoDelayBluetooth']
+    args += ['--video-delay', '%d' % videoDelay]
     if srt:
         args += ['--subtitles', srt]
     if mode == 'tv':
@@ -317,6 +372,12 @@ def callOMXPlayer(url, srt=None, mode=None):
         elif key == K_SPACE:
             proc.stdin.write(' ')
             proc.stdin.flush()
+        elif key == K_4:
+            proc.stdin.write('3')
+            proc.stdin.flush()
+        elif key == K_6:
+            proc.stdin.write('4')
+            proc.stdin.flush()
         
 
     return None
@@ -332,10 +393,14 @@ def updateScreen():
 
 
 def drawText(x, y, text, colorFg, colorBg):
+#    if not isinstance(text, unicode):
+#        text = text.decode('utf-8')
     return basicFont.render_to(screen, (x, y), text, colorFg, colorBg)
 
 def drawTextMultiline(x, y, text, colorFg, colorBg):
-    for line in text.split('\n'):
+#    if not isinstance(text, unicode):
+#        text = text.decode('utf-8')
+    for line in text.split(u'\n'):
         basicFont.render_to(screen, (x, y), line, colorFg, colorBg)
         y += itemHeight
 
@@ -347,8 +412,8 @@ def clearAndDrawTitle(title):
 
 
 def renderMessageBox(title, msg):
-    clearAndDrawTitle(title)
-    drawTextMultiline(30, itemHeight + 10, msg, COLOR_FG, COLOR_BG)
+    clearAndDrawTitle(TR(title))
+    drawTextMultiline(30, itemHeight + 10, TR(msg), COLOR_FG, COLOR_BG)
     updateScreen()
 
 
@@ -371,7 +436,7 @@ def inputDialog(title, text):
     if text == None:
         text = ''
     while True:
-        clearAndDrawTitle(title)
+        clearAndDrawTitle(TR(title))
         drawText(30, itemHeight + 10, text + '_', COLOR_FG, COLOR_BG)
         drawBorder(0, itemHeight, SCREEN_W, itemHeight, 2, COLOR_FG)
         for i in range(0, 40):
@@ -417,7 +482,20 @@ def msgBox(title, text):
     renderMessageBox(title, text)
     waitKey()
 
-def showMenu(items, caption, selectTo=None):
+def drawWarning(x=0, y=0):
+    screen.blit(laserImg, (x, y))
+    x += 160
+    basicFont.render_to(screen, (x, y), u'警告：本设备为Class 3R激光设备，错误使用可能导致永久性视力损害。', COLOR_FG, COLOR_BG, size=35)
+    y += 50
+    basicFont.render_to(screen, (x, y), u'请勿直视本设备发出的激光光束，更不能将激光指向自己或其他人。', COLOR_FG, COLOR_BG, size=35)
+    y += 50
+    basicFont.render_to(screen, (x, y), u'儿童必须在家长监护下使用本设备。', COLOR_FG, COLOR_BG, size=35)
+    y += 50
+    basicFont.render_to(screen, (x, y), u'机身绿色指示灯亮时请勿移除电源。', COLOR_FG, COLOR_BG, size=35)
+
+def showMenu(items, caption, selectTo=None, style=None):
+    caption = TR(caption)
+
     itemPerPage = SCREEN_H / (itemHeight) - 2
     selBorder = 4
     menuRect = (0, basicFontHeight, SCREEN_W, SCREEN_H - basicFontHeight * 2)
@@ -442,14 +520,18 @@ def showMenu(items, caption, selectTo=None):
         y = itemHeight
 
         for i in range(menuStart, min(menuStart + itemPerPage, len(items))):
-            drawText(x, y + 10, items[i], COLOR_FG, COLOR_BG)
+            drawText(x, y + 10, TR(items[i]), COLOR_FG, COLOR_BG)
             if menuSel == i:
                 drawBorder(0, y, SCREEN_W, itemHeight,
                            selBorder, COLOR_MENU_SEL)
             screen.fill(COLOR_LINE, (0, y + itemHeight - 1, SCREEN_W, 1))
             y += itemHeight
-        drawText(SCREEN_W - 200, y + 10, 'Page %d/%d' % (menuSel / itemPerPage +
+
+        if len(items) > itemPerPage:
+            drawText(SCREEN_W - 200, y + 10, 'Page %d/%d' % (menuSel / itemPerPage +
                                                          1, (len(items) - 1) / itemPerPage + 1), COLOR_FG, COLOR_BG)
+        if style == 'main':
+            drawWarning(10, 530)
         updateScreen()
 
         key = waitKey()
@@ -598,20 +680,45 @@ def udiskMode():
     os.system('sync')
     os.system(MOUNT_DISK_CMD)
 
+def videoPlayerConfigMenu():
+    menu = ['', '', '']
+    ret = -1
+    while True:
+        menu[0] = TR('Default Volume: %d dB') % config['DefaultVolume']
+        menu[1] = TR('Default Video Delay: %d') % config['DefaultVideoDelay']
+        menu[2] = TR('Default Video Delay for Bluetooth: %d') % config['DefaultVideoDelayBluetooth']
+        ret, event = showMenu(menu, 'Video Player', selectTo=ret)
+        d = 0
+        if event == K_RIGHT:
+            d = 1
+        elif event == K_LEFT:
+            d = -1
+        if ret < 0:
+            saveConfig()
+            return
+        elif ret == 0:
+            config['DefaultVolume'] += d
+        elif ret == 1:
+            config['DefaultVideoDelay'] += 10 * d
+        elif ret == 2:
+            config['DefaultVideoDelayBluetooth'] += 10 * d
+
 def configMenu():
     
     ret, event = showMenu(
-        ['WiFi', 'Network Info', 'System Info', 'Software Update', '<!> Format Internal Storage'], 'Settings'
+        ['Video Player', 'WiFi', 'Network Info', 'System Info', 'Software Update', '<!> Format Internal Storage'], 'Settings'
     )
     if ret == 0:
+        videoPlayerConfigMenu()
+    elif ret == 1:
         pwd = None
         ssid = inputDialog('WiFi SSID', '')
-        if ssid != None:
-            pwd = inputDialog('WiFi Password', '')
-        if (ssid == '9527') and (ssid == '9527'):
+        if (ssid == '9527'):
             with open('/run/next', 'w') as f:
                 f.write('python /opt/shell/calib.py')
             sys.exit()
+        if ssid != None:
+            pwd = inputDialog('WiFi Password', '')
         if (ssid == None) or (pwd == None) or ((ssid == '') and (pwd != '')):
             msgBox('WiFi', 'WiFi config cancelled.')
             return
@@ -620,13 +727,13 @@ def configMenu():
             msgBox('WiFi', 'WiFi config cleared.')
         else:
             msgBox('WiFi', 'WiFi config saved.')
-    elif ret == 1:
-        msgBox('Network Info', 'IP: %s' % (runCommandAndGetOutput(['hostname', '-I']).strip()))
     elif ret == 2:
-        msgBox('System Info', 'Version: v%d\nSN: %s' % (VERSION_CODE, otaGetSerial()))
+        msgBox('Network Info', 'IP: %s' % (runCommandAndGetOutput(['hostname', '-I']).strip()))
     elif ret == 3:
-        otaCheckUpdate()
+        msgBox('System Info', 'Version: v%d\nSN: %s' % (VERSION_CODE, otaGetSerial()))
     elif ret == 4:
+        otaCheckUpdate()
+    elif ret == 5:
         msg = inputDialog('Enter "OK" to DELETE ALL DATA.', '')
         if msg == 'OK':
             os.system('umount /disk')
@@ -637,6 +744,7 @@ def configMenu():
             os.system('fdisk /dev/mmcblk0 < /opt/shell/fdisk.ans')
             os.system(MOUNT_DISK_CMD)
             os.system('mkdir /disk/video /disk/game')
+            os.system('sync')
             msgBox('Format', 'Done')
         else:
             msgBox('Format', 'Format cancelled.')
@@ -645,7 +753,7 @@ def dlnaMenu():
     ip = (runCommandAndGetOutput(['hostname', '-I']).strip())
     mediarenderer.currentURI = None
     while True:
-        renderMessageBox('Wireless Casting', 'Waiting...\nhttp://%s' % ip)
+        renderMessageBox('Wireless Casting', TR('Waiting...\nhttp://%s') % ip)
         key = waitKey(500)
         if key == K_ESCAPE:
             return
@@ -666,6 +774,8 @@ def fileBrowser(dir):
         fullPath = dir + '/' + fnList[ret]
         if os.path.isdir(fullPath):
             fileBrowser(fullPath)
+        elif fullPath.lower().endswith('.swupd'):
+            otaInstallPayload(fullPath)
         else:
             srtPath = fullPath.rsplit('.', 1)[0] + '.srt'
             if os.path.isfile(srtPath):
@@ -690,7 +800,157 @@ def fileMenu():
         fileBrowser('/udisk')
         os.system('umount /udisk')
 
+# Bluetooth
 
+def blGetCurrentConnectedAudioAddr():
+    ret = runCommandAndGetOutput(['bluealsa-aplay', '-L']).split('DEV=')
+    if len(ret) <= 1:
+        return None
+    return ret[1].split(',', 1)[0]
+
+def blTryConfigureAudio():
+    flushKey()
+    addr = blGetCurrentConnectedAudioAddr()
+    if addr is None:
+        pairedDevices = blGetDevices(True)
+        if len(pairedDevices) <= 0:
+            return False
+        pairedAddr, pairedName = pairedDevices[0]
+        for retry in range(0, 3):
+            renderMessageBox('Bluetooth', 'Connecting bluetooth audio device...')
+            blStartConnectDevice(pairedAddr)
+            key = waitKey(5000)
+            addr = blGetCurrentConnectedAudioAddr()
+            if not(addr is None):
+                break
+            if key == K_ESCAPE:
+                # Skip retrying if escape pressed
+                break
+        if addr is None:
+            msgBox('Bluetooth', 'Failed to connect bluetooth audio device.\nFallback to 3.5mm output.')
+            flushKey()
+    if addr is None:
+        return False
+    with open('/root/.asoundrc', 'w') as f:
+        f.write("""defaults.bluealsa.device "%s"
+defaults.bluealsa.profile "a2dp"
+defaults.bluealsa.delay 40000""" % (addr))
+    return True
+
+
+
+def runCommandAndGetOutputWithStdin(args, input):
+    proc = subprocess.Popen(args=args, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+    proc.stdin.write(input)
+    proc.stdin.flush()
+    proc.stdin.close()
+    proc.wait()
+    return proc.stdout.read()
+
+def blCallBluetoothCtl(cmd):
+    return runCommandAndGetOutputWithStdin(['bluetoothctl'], cmd + '\n')
+
+
+
+def blGetDevices(pairedOnly = False):
+    ret = []
+    cmd = 'devices'
+    if pairedOnly:
+        cmd = 'paired-devices'
+    lines = blCallBluetoothCtl(cmd).split('\n')
+    for line in lines:
+        if line.startswith('Device '):
+            tmp = line.split(' ', 2)
+            if len(tmp) < 2:
+                continue
+            deviceName = ''
+            deviceAddr = tmp[1]
+            if len(tmp) >= 3:
+                deviceName = tmp[2]
+            ret.append((deviceAddr, deviceName))
+    return ret
+
+blScanProc = None
+
+def blStopScan():
+    global blScanProc
+    if blScanProc is None:
+        return
+    blScanProc.stdin.close()
+    blScanProc.wait()
+    blScanProc = None
+
+def blStartScan():
+    global blScanProc
+    blStopScan()
+    blScanProc = subprocess.Popen(args=['bluetoothctl'], stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+    blScanProc.stdin.write('set-scan-filter-transport bredr\n')
+    blScanProc.stdin.write('scan on\n')
+    blScanProc.stdin.flush()
+
+def blStartConnectDevice(addr):
+    blCallBluetoothCtl('connect ' + addr)
+    
+def blPairDevice(addr):
+    global blScanProc
+    blScanProc.stdin.write('pair %s\n' % addr);blScanProc.stdin.flush()
+    time.sleep(3)
+    isPaired = False
+    for retry in range(0, 10):
+        pairedDevices = blGetDevices(True)
+        for paddr, pname in pairedDevices:
+            if paddr == addr:
+                isPaired = True
+                break 
+        if isPaired:
+            break
+        time.sleep(5)
+    time.sleep(5)
+    blCallBluetoothCtl('trust ' + addr)
+    blCallBluetoothCtl('connect ' + addr)
+    return isPaired
+
+
+def blRemoveDevice(addr):
+    blCallBluetoothCtl('remove ' + addr)
+
+
+def blMenu():
+    pairedDevices = blGetDevices(True)
+
+    menu = ['Add Device']
+    if len(pairedDevices) > 0:
+        menu[0] = 'Remove Device'
+        menu.append('---Paired Devices---')
+        for addr, name in pairedDevices:
+            menu.append((addr + ' ' + name).decode('utf-8'))
+    ret, event = showMenu(menu, 'Bluetooth')
+    if ret == 0:
+        if len(pairedDevices) > 0:
+            msgBox('Bluetooth', 'Device is removed.')
+            for addr, name in pairedDevices:
+                blRemoveDevice(addr)
+        else:
+            renderMessageBox('Scanning', 'Please wait...')
+            blStartScan()
+            time.sleep(15)
+            scannedDevices = blGetDevices(False)
+            menu2 = []
+            for addr, name in scannedDevices:
+                menu2.append((addr + ' ' + name).decode('utf-8'))
+            ret2, event2 = showMenu(menu2, 'Devices Found')
+            if ret2 >= 0:
+                addr, name = scannedDevices[ret2]
+                renderMessageBox('Bluetooth', 'Pairing...')
+                isPaired = blPairDevice(addr)
+                if isPaired:
+                    msgBox('Bluetooth', 'Device is paired.')
+                else:
+                    msgBox('Bluetooth', 'Failed to pair device.')
+            blStopScan()
+
+
+# Main loop
 
 os.system(MOUNT_DISK_CMD)
 mediarenderer.startHTTPServer()
@@ -722,7 +982,7 @@ castServThread.start()
 
 while True:
     ret, event = showMenu(
-        ["Files", "TV", "Wireless Casting", "Projector Control", "Settings", "Power options"], "Main")
+        ["Files", "TV", "Wireless Casting", "Projector Control", "Bluetooth", "Settings", "Power options"], "Main", style='main')
     if ret == 0:
         fileMenu()
     elif ret == 1:
@@ -732,7 +992,9 @@ while True:
     elif ret == 3:
         projectorMenu()
     elif ret == 4:
-        configMenu()
+        blMenu()
     elif ret == 5:
+        configMenu()
+    elif ret == 6:
         powerMenu()
 

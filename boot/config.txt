@@ -1,5 +1,6 @@
 enable_uart=1
 disable_pvt=1
+dtoverlay=dwc-otg
 dtoverlay=gpio-ir,gpio_pin=18,gpio_pull=high
 dtparam=audio=on
 dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4
@@ -18,10 +19,10 @@ hdmi_pixel_encoding=1
 
 force_turbo=1
 start_x=0
-arm_freq=800
+arm_freq=1000
 core_freq=400
-h264_freq=400
+h264_freq=450
 #isp_freq=100
-v3d_freq=250
-sdram_freq=400
+v3d_freq=300
+sdram_freq=450
 

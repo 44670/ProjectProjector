@@ -142,6 +142,9 @@ screen.fill(WHITE, (0, 50, SCREEN_W, 2))
 screen.fill(WHITE, (0, 25, SCREEN_W, 1))
 screen.fill(WHITE, (10, 110, 1, 500))
 screen.fill(WHITE, (1000, 110, 1, 500))
+screen.fill(RED, (200, 200, 50, 50))
+screen.fill(GREEN, (300, 200, 50, 50))
+screen.fill(BLUE, (400, 200, 50, 50))
 pygame.display.update()
 
 while True:
