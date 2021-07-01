@@ -22,7 +22,7 @@ import mediarenderer
 from lang_cn import TR
 
 
-VERSION_CODE = 20201212
+VERSION_CODE = 20210602
 VERSION = 'v%s' % VERSION_CODE
 
 BASE_PATH = '/opt/shell/'
