@@ -55,8 +55,6 @@
 }
 
 def TR(word):
-    if isinstance(word, unicode):
-        return word 
-    if table.has_key(word):
-        return table[word].decode('utf-8')
-    return word.decode('utf-8')
+    if word in table:
+        return table[word]
+    return word

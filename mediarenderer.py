@@ -3,8 +3,6 @@
 import sys
 import xml.sax.saxutils
 import threading
-import SocketServer
-import SimpleHTTPServer
 import struct
 import socket
 import time
@@ -39,6 +37,7 @@ def SSDPServerLoop():
     ssdpResponseSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     while True:
         req, sender = ssdpMulticastSock.recvfrom(10240)
+        req = req.decode('utf8')
         if req.startswith('M-SEARCH'):
             print('Handling SSDP search request: ')
             #print(req)
@@ -50,7 +49,7 @@ def SSDPThread():
     while True:
         try:
             SSDPServerLoop()
-        except Exception as e:
+        except KeyboardInterrupt as e:
             print('SSDP Exception: ')
             print(e)
         if ssdpMulticastSock != None:
@@ -93,7 +92,7 @@ def handleSSDPSearchRequest(req, sender):
     resp = resp.replace('\n', '\r\n')
     #print('Response: ')
     #print(resp)
-    s.send(resp)
+    s.send(resp.encode('utf8'))
     s.close()
 
 
@@ -122,47 +121,52 @@ def handleControl(req, reqType):
     return resp
 
 
-class MyRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/':
-            self.sendXMLResponse(upnp_templates.TEMPLATE_MAIN_XML)
-        if self.path == '/AVTransport/scpd.xml':
-            self.sendXMLResponse(upnp_templates.TEMPLATE_AVTRANSPORT_SCPD)
-        if self.path == '/ConnectionManager/scpd.xml':
-            self.sendXMLResponse(upnp_templates.TEMPLATE_CONNECTIONMANAGER_SCPD)
-        if self.path == '/RenderingControl/scpd.xml':
-            self.sendXMLResponse(upnp_templates.TEMPLATE_RENDERINGCONTROL_SCPD)
+import tornado.ioloop
+import tornado.web
+import asyncio
 
-    def do_POST(self):
+class MainHandler(tornado.web.RequestHandler):
+    def get(self, name):
+        path = self.request.path
+        if path == '/':
+            self.sendXMLResponse(upnp_templates.TEMPLATE_MAIN_XML)
+        if path == '/AVTransport/scpd.xml':
+            self.sendXMLResponse(upnp_templates.TEMPLATE_AVTRANSPORT_SCPD)
+        if path == '/ConnectionManager/scpd.xml':
+            self.sendXMLResponse(upnp_templates.TEMPLATE_CONNECTIONMANAGER_SCPD)
+        if path == '/RenderingControl/scpd.xml':
+            self.sendXMLResponse(upnp_templates.TEMPLATE_RENDERINGCONTROL_SCPD)
+    
+    def post(self, name):
+        path = self.request.path
         resp = ''
-        postData = self.rfile.read(int(self.headers['Content-Length']))
+        postData = self.request.body.decode('utf8')
         #print(postData)
-        if self.path == '/AVTransport/control.xml':
+        if self.request.path == '/AVTransport/control.xml':
             resp = handleControl(postData, 'AVTransport')
-        if self.path == '/RenderingControl/control.xml':
+        if self.request.path == '/RenderingControl/control.xml':
             resp = handleControl(postData, 'RenderingControl')
         self.sendXMLResponse(resp)
-
+    
     def sendXMLResponse(self, xml):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/xml; charset="utf-8"')
-        self.end_headers()
-        self.wfile.write(xml.replace('\n', '\r\n'))
+        self.set_status(200)
+        self.set_header('Content-type', 'text/xml; charset="utf-8"')
+        self.write(xml.replace('\n', '\r\n'))
+
+def make_app():
+    return tornado.web.Application([
+        (r"/(.*)", MainHandler),
+    ])
 
 
 def HTTPServerThread():
-    Handler = MyRequestHandler
-    httpd = None
+    asyncio.set_event_loop(asyncio.new_event_loop())
+    app = make_app()
     while True:
         try:
-            httpd = SocketServer.TCPServer(("", 1288), Handler)
-            httpd.serve_forever()
+            app.listen(1288)
+            tornado.ioloop.IOLoop.current().start()
         except Exception as e:
-            try:
-                httpd.server_close()
-                print("Closed httpd.")
-            except:
-                pass
             print('Http server failed, retry...')
             print(e)
         time.sleep(5)
