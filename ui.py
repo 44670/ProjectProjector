@@ -39,15 +39,19 @@ pygame.display.update()
 laserImg = None
 laserImg = pygame.image.load('laser.png')
 
-
+def pollGpioKey():
+    return None
 
 def pollKey():
-    event = pygame.event.poll()
-    if event.type == QUIT:
-        pygame.quit()
-        sys.exit()
-    if event.type == KEYUP:
-        return event.key
+    while True:
+        event = pygame.event.poll()
+        if event.type == NOEVENT:
+            return pollGpioKey()
+        if event.type == QUIT:
+            pygame.quit()
+            sys.exit()
+        if event.type == KEYUP:
+            return event.key
 
 
 def waitKey(timeout=None):
@@ -56,8 +60,8 @@ def waitKey(timeout=None):
         evt = pollKey()
         if (evt != None):
             return evt
-        time.sleep(0.1)
-        timePassed += 100
+        time.sleep(0.01)
+        timePassed += 10
         if (timeout != None) and (timePassed >= timeout):
             return None
 
@@ -210,6 +214,7 @@ def showMenu(items, caption, selectTo=None, style=None):
         updateScreen()
 
         key = waitKey()
+        
         if (key == K_DOWN):
             menuSel += 1
         elif key == K_UP:
@@ -220,3 +225,4 @@ def showMenu(items, caption, selectTo=None, style=None):
             return -1, key
         elif key == K_F1:
             handlePowerButton()
+  

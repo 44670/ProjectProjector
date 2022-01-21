@@ -1,7 +1,7 @@
 ﻿import sys
 sys.path.append(".")
 import proj
-proj.powerOn()
+
 from ui import *
 import mediarenderer
 import ota
@@ -11,7 +11,7 @@ import bl
 import json
 import os
 from const import *
-
+import calib
 
 mediarenderer.startSSDPService()
 mediarenderer.startHTTPServer()
@@ -230,9 +230,8 @@ def configMenu():
         pwd = None
         ssid = inputDialog('WiFi SSID', '')
         if (ssid == '9527'):
-            with open('/run/next', 'w') as f:
-                f.write('python /opt/shell/calib.py')
-            sys.exit()
+            import calib
+            calib.calib()
         if ssid != None:
             pwd = inputDialog('WiFi Password', '')
         if (ssid == None) or (pwd == None) or ((ssid == '') and (pwd != '')):
@@ -276,6 +275,7 @@ while True:
     elif ret == 2:
         dlnaMenu()
     elif ret == 3:
+        calib.calib()
         projectorMenu()
     elif ret == 4:
         bl.blMenu()
