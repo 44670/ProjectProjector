@@ -1,4 +1,17 @@
-VERSION_CODE = 20210602
+VERSION_CODE = 0
+try:
+    with open('VERSION', 'r') as f:
+        VERSION_CODE = int(f.read())
+except:
+    pass    
+
+HW_MODEL = 'v1'
+try:
+    with open('/HW_MODEL', 'r') as f:
+        HW_MODEL = f.read()
+except:
+    pass
+
 VERSION = 'v%s' % VERSION_CODE
 
 BASE_PATH = '/opt/shell/'

@@ -1,6 +1,6 @@
 ﻿print("Initializing UI...")
 import pygame
-import pygame.freetype
+import pygame.font
 import pygame.image
 from pygame.locals import *
 from lang_cn import TR
@@ -25,13 +25,14 @@ COLOR_MENU_SEL = (24, 242, 192)
 COLOR_LINE = (127, 127, 127)
 
 pygame.display.init()
-pygame.freetype.init()
+pygame.font.init()
 pygame.mouse.set_visible(False)
 
 screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), 0, 32)
-basicFont = pygame.freetype.Font(FONT_PATH, 48)
-basicFontHeight = basicFont.get_sized_height()
+basicFont = pygame.font.Font(FONT_PATH, 48)
+basicFontHeight = basicFont.get_height()
 itemHeight = basicFontHeight + 10
+smallFont = pygame.font.Font(FONT_PATH, 30)
 
 screen.fill(BLACK)
 pygame.display.update()
@@ -75,12 +76,20 @@ def handlePowerButton():
 def updateScreen():
     pygame.display.update()
 
+
+def fontRenderTo(surface, pos, text, colorFg, colorBg, size=48):
+    f = basicFont
+    if size < 48:
+        f = smallFont
+    s = f.render(text, True, colorFg, colorBg)
+    surface.blit(s, pos)
+
 def drawText(x, y, text, colorFg, colorBg):
-    return basicFont.render_to(screen, (x, y), text, colorFg, colorBg)
+    return fontRenderTo(screen, (x, y), text, colorFg, colorBg)
 
 def drawTextMultiline(x, y, text, colorFg, colorBg):
     for line in text.split(u'\n'):
-        basicFont.render_to(screen, (x, y), line, colorFg, colorBg)
+        fontRenderTo(screen, (x, y), line, colorFg, colorBg)
         y += itemHeight
 
 def clearAndDrawTitle(title):
@@ -162,13 +171,13 @@ def msgBox(title, text):
 def drawWarning(x=0, y=0):
     screen.blit(laserImg, (x, y))
     x += 160
-    basicFont.render_to(screen, (x, y), u'警告：本设备为Class 3R激光设备，错误使用可能导致永久性视力损害。', COLOR_FG, COLOR_BG, size=35)
-    y += 50
-    basicFont.render_to(screen, (x, y), u'请勿直视本设备发出的激光光束，更不能将激光指向自己或其他人。', COLOR_FG, COLOR_BG, size=35)
-    y += 50
-    basicFont.render_to(screen, (x, y), u'儿童必须在家长监护下使用本设备。', COLOR_FG, COLOR_BG, size=35)
-    y += 50
-    basicFont.render_to(screen, (x, y), u'机身绿色指示灯亮时请勿移除电源。', COLOR_FG, COLOR_BG, size=35)
+    fontRenderTo(screen, (x, y), u'警告：本设备为Class 3R激光设备，错误使用可能导致永久性视力损害。', COLOR_FG, COLOR_BG, size=35)
+    y += 45
+    fontRenderTo(screen, (x, y), u'请勿直视本设备发出的激光光束，更不能将激光指向自己或其他人。', COLOR_FG, COLOR_BG, size=35)
+    y += 45
+    fontRenderTo(screen, (x, y), u'儿童必须在家长监护下使用本设备。', COLOR_FG, COLOR_BG, size=35)
+    y += 45
+    fontRenderTo(screen, (x, y), u'机身绿色指示灯亮时请勿移除电源。', COLOR_FG, COLOR_BG, size=35)
 
 
 
@@ -210,7 +219,7 @@ def showMenu(items, caption, selectTo=None, style=None):
             drawText(SCREEN_W - 200, y + 10, 'Page %d/%d' % (menuSel // itemPerPage +
                                                          1, (len(items) - 1) // itemPerPage + 1), COLOR_FG, COLOR_BG)
         if style == 'main':
-            drawWarning(10, 530)
+            drawWarning(10, 540)
         updateScreen()
 
         key = waitKey()

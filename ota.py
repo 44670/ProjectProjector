@@ -37,7 +37,7 @@ def urlOpen(url):
 
 def installPayload(path):
     cast.castServEnabled = False
-    os.system('killall CastService bluealsa omxplayer.bin')
+    os.system('killall ProjectCast bluealsa omxplayer.bin')
     time.sleep(1)
     global otaZipFile
     otaZipFile = zipfile.ZipFile(path)

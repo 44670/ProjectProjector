@@ -1,21 +1,20 @@
-﻿import sys
+﻿from cmath import log
+import sys
 sys.path.append(".")
-import proj
-
-from ui import *
-import mediarenderer
-import ota
 import subprocess
-from util import *
-import bl
 import json
 import os
+
+from util import *
+from ui import *
+import proj
+import ota
+import bl
 from const import *
 import calib
+import cast
 
-mediarenderer.startSSDPService()
-mediarenderer.startHTTPServer()
-
+cast.start()
 config = {}
 
 def loadConfig():
@@ -43,7 +42,7 @@ def callOMXPlayer(url, srt=None, mode=None):
     updateScreen()
 
     aplayRet = runCommandAndGetOutput(['aplay', '-l'])
-    args = ['/usr/bin/omxplayer.bin']
+    args = ['/usr/bin/omxplayer']
     args += ['--win', '0,0,%d,%d' % (SCREEN_W, SCREEN_H)]
     if (aplayRet.find('card 1:') != -1):
         print('Using usb sound card...')
@@ -79,34 +78,34 @@ def callOMXPlayer(url, srt=None, mode=None):
                 return key
         else:
             if key == K_RIGHT:
-                proc.stdin.write("\x1B[C")
+                proc.stdin.write(b"\x1B[C")
                 proc.stdin.flush()
             elif key == K_LEFT:
-                proc.stdin.write("\x1B[D")
+                proc.stdin.write(b"\x1B[D")
                 proc.stdin.flush()
             elif key == K_1:
-                proc.stdin.write("\x1B[B")
+                proc.stdin.write(b"\x1B[B")
                 proc.stdin.flush()
             elif key == K_3:
-                proc.stdin.write("\x1B[A")
+                proc.stdin.write(b"\x1B[A")
                 proc.stdin.flush()
         if key == K_UP:
-            proc.stdin.write('+')
+            proc.stdin.write(b'+')
             proc.stdin.flush()
         elif key == K_DOWN:
-            proc.stdin.write('-')
+            proc.stdin.write(b'-')
             proc.stdin.flush()
         elif key == K_ESCAPE:
             proc.terminate()
             return None
         elif key == K_SPACE:
-            proc.stdin.write(' ')
+            proc.stdin.write(b' ')
             proc.stdin.flush()
         elif key == K_4:
-            proc.stdin.write('3')
+            proc.stdin.write(b'3')
             proc.stdin.flush()
         elif key == K_6:
-            proc.stdin.write('4')
+            proc.stdin.write(b'4')
             proc.stdin.flush()
         
 
@@ -115,10 +114,7 @@ def callOMXPlayer(url, srt=None, mode=None):
 def fileBrowser(dir):
     fnList = os.listdir(dir)
     while True:
-        unicodeFnList = []
-        for fn in fnList:
-            unicodeFnList.append(fn.decode('utf-8'))
-        ret, event = showMenu(unicodeFnList, dir)
+        ret, event = showMenu(fnList, dir)
         if ret < 0:
             return
         fullPath = dir + '/' + fnList[ret]
@@ -169,17 +165,17 @@ def tvMenu():
         callOMXPlayer(tvUrlList[ret], mode='tv')
 
 def dlnaMenu():
-    ip = (runCommandAndGetOutput(['hostname', '-I']).strip())
-    mediarenderer.currentURI = None
+    ip = getMyIP()
+    cast.currentURI = None
     while True:
-        renderMessageBox('Wireless Casting', TR('Waiting...\nhttp://%s') % ip)
+        renderMessageBox('Wireless Casting', TR('Waiting...\nhttp://%s:8052') % ip)
         key = waitKey(500)
         if key == K_ESCAPE:
             return
-        if (mediarenderer.currentURI != None):
-            uri = mediarenderer.currentURI
+        if (cast.currentURI != None):
+            uri = cast.currentURI
             callOMXPlayer(uri, mode='dlna')
-            mediarenderer.currentURI = None
+            cast.currentURI = None
 
 def videoPlayerConfigMenu():
     menu = ['', '', '']
@@ -243,7 +239,7 @@ def configMenu():
         else:
             msgBox('WiFi', 'WiFi config saved.')
     elif ret == 2:
-        msgBox('Network Info', 'IP: %s' % (runCommandAndGetOutput(['hostname', '-I']).strip()))
+        msgBox('Network Info', 'IP: %s' % getMyIP())
     elif ret == 3:
         msgBox('System Info', 'Version: v%d\nSN: %s' % (VERSION_CODE, ota.getSerial()))
     elif ret == 4:

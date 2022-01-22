@@ -1,11 +1,14 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+
 import sys
-import xml.sax.saxutils
+import html
 import threading
 import struct
 import socket
 import time
+
 
 import upnp_templates
 
@@ -48,6 +51,7 @@ def SSDPThread():
     global ssdpMulticastSock, ssdpResponseSock
     while True:
         try:
+            print('Starting SSDP server on udp:%d' % MCAST_PORT)
             SSDPServerLoop()
         except KeyboardInterrupt as e:
             print('SSDP Exception: ')
@@ -75,6 +79,7 @@ def startSSDPService():
     ssdpThread = threading.Thread(target=SSDPThread)
     ssdpThread.daemon = True
     ssdpThread.start()
+
 
 
 def handleSSDPSearchRequest(req, sender):
@@ -109,7 +114,7 @@ def handleControl(req, reqType):
         arr = req.split('<CurrentURI>', 1)
         if len(arr) > 1:
             uri = arr[1].split('</CurrentURI>', 1)[0]
-            uri = xml.sax.saxutils.unescape(uri)
+            uri = html.unescape(uri)
             print("====== SetAVTransportURI called, url: ")
             print(uri)
             print('======')
@@ -164,10 +169,11 @@ def HTTPServerThread():
     app = make_app()
     while True:
         try:
+            print('Starting HTTP server on port 1288...')
             app.listen(1288)
             tornado.ioloop.IOLoop.current().start()
         except Exception as e:
-            print('Http server failed, retry...')
+            print('HTTP server failed, retry...')
             print(e)
         time.sleep(5)
     
